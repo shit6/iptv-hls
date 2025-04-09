@@ -1,0 +1,20 @@
+{
+"token":"iptv223344",
+"list":[
+	{
+	"name":"CCTV1",
+	"url":"rtsp://123.147.112.17:8089/04000001/01000000004000000000000000000231?AuthInfo=xxx&userid=gf001&userid=gf001",
+	"stream_id":"cctv1"
+	},
+	{
+	"name":"CCTV2",
+	"url":"rtsp://123.147.112.17:8089/04000001/01000000004000000000000000000295?AuthInfo=xxx&userid=gf001&userid=gf001",
+	"stream_id":"cctv2"
+	},
+	{
+	"name":"重庆社会与法",
+	"url":"rtsp://123.147.112.17:8089/04000001/01000000004000000000000000000375?AuthInfo=xxx&userid=gf001&userid=gf001",
+	"stream_id":"cqtv4"
+	}
+]
+}
