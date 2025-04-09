@@ -1,10 +1,16 @@
-# 使用官方多架构镜像
-FROM --platform=$BUILDPLATFORM python:3.9-slim
+# 使用多架构兼容的基础镜像
+FROM --platform=$BUILDPLATFORM python:3.9-slim AS builder
 
-# 安装依赖（兼容多架构）
+# 安装跨架构兼容的依赖
 RUN apt-get update && \
-    apt-get install -y ffmpeg && \
+    apt-get install -y \
+    ffmpeg=7:4.3.6-0+deb11u1 \  # 明确指定版本
+    --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
+
+# 添加架构识别参数
+ARG TARGETARCH
+RUN echo "Target Architecture: $TARGETARCH" > /arch-info.txt
 
 WORKDIR /app
 COPY requirements.txt .
