@@ -7,7 +7,8 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME }}/iptv-hls
+  #IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME }}/iptv-hls
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/iptv-hls
 
 jobs:
   build-and-push:
