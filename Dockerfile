@@ -4,7 +4,7 @@ FROM --platform=$BUILDPLATFORM python:3.9-slim AS builder
 # 安装跨架构兼容的依赖
 RUN apt-get update && \
     apt-get install -y \
-    ffmpeg=7:4.3.6-0+deb11u1 \  # 明确指定版本
+    ffmpeg=7:4.3.6-0+deb11u1 \
     --no-install-recommends && \
     rm -rf /var/lib/apt/lists/*
 
