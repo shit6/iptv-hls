@@ -7,36 +7,27 @@ on:
 
 env:
   REGISTRY: docker.io
-  #IMAGE_NAME: ${{ vars.DOCKERHUB_USERNAME }}/iptv-hls
-  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/iptv-hls
+  IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/iptv-hls  # 关键修改点
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
-      # 步骤 1: 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 步骤 2: 设置 QEMU 支持多架构
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 步骤 3: 配置 Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:master
 
-      # 步骤 4: 登录 Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 步骤 5: 构建并推送镜像
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
