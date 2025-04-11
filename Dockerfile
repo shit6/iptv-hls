@@ -1,27 +1,38 @@
-# 使用多架构兼容的基础镜像
-FROM --platform=$BUILDPLATFORM python:3.9-slim AS builder
+# syntax=docker/dockerfile:1
 
-# 安装跨架构兼容的依赖
+FROM --platform=$TARGETPLATFORM python:3.9-slim-bookworm
+
+# 设置时区
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 配置APT源
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list && \
+    sed -i 's/security.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list
+
+# 安装依赖
 RUN apt-get update && \
     apt-get install -y \
-    ffmpeg=7:4.3.6-0+deb11u1 \
-    --no-install-recommends && \
-    rm -rf /var/lib/apt/lists/*
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-# 添加架构识别参数
-ARG TARGETARCH
-RUN echo "Target Architecture: $TARGETARCH" > /arch-info.txt
-
+# 创建工作目录
 WORKDIR /app
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
 
+# 安装Python依赖
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+# 复制应用文件
 COPY app.py .
 
-RUN mkdir -p /hls && \
-    chmod 777 /hls && \
-    mkdir -p /app/config
+# 创建用户和权限设置
+RUN adduser --disabled-password --gecos "" appuser && \
+    mkdir -p /hls /app/config && \
+    chown appuser:appuser /hls /app/config
 
-CMD ["python", "app.py"]
+USER appuser
 
+# 容器配置
 EXPOSE 50086
+CMD ["python", "app.py"]
