@@ -12,7 +12,6 @@ RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.li
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg=7:4.3.6-0+deb11u1 \
-        libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
