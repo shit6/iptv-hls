@@ -17,6 +17,12 @@ jobs:
       packages: write
 
     steps:
+      - name: Validate Dockerfile
+        run: |
+          cat Dockerfile
+          echo "------------------"
+          grep -A 3 "apt-get install" Dockerfile
+          
       - name: Checkout code
         uses: actions/checkout@v3
 
