@@ -6,7 +6,10 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from flask import Flask, request, abort, send_from_directory, Response
+from urllib.parse import quote
+from flask import Flask, request, abort, send_from_directory, Response, jsonify
+from flask import render_template_string
+import html
 
 app = Flask(__name__)
 
@@ -42,14 +45,19 @@ class StreamProcess:
             shutil.rmtree(self.output_dir, ignore_errors=True)
             self.output_dir.mkdir(parents=True, exist_ok=True)
             
+            # 从全局配置获取hls参数
+            with config_lock:  # 确保线程安全
+                hls_time = config_data.get('hls_time', '3')  # 默认值3
+                hls_list_size = config_data.get('hls_list_size', '12')  # 默认值12
+
             # FFmpeg推流命令
             cmd = [
                 'ffmpeg',
                 '-i', self.url,
                 '-c', 'copy',
                 '-f', 'hls',
-                '-hls_time', '2',        # 更短的分片时间
-                '-hls_list_size', '5',   # 更小的列表长度
+                '-hls_time', hls_time,        # 更短的分片时间
+                '-hls_list_size', hls_list_size,  # 使用配置的hls_list_size
                 '-hls_flags', 'delete_segments+append_list+temp_file',
                 '-start_number', '0',    # 明确起始编号
                 '-hls_base_url', f'/{self.stream_id}/',
@@ -202,21 +210,233 @@ def serve_ts(stream_id, filename):
     
     return send_from_directory(str(stream_dir), base_filename)
 
+
 @app.route('/txt')
 def channel_list():
-    """频道列表接口"""
+    """带分组标识的频道列表接口"""
     if request.args.get('token') != TOKEN:
-        abort(502, description="Invalid token")
+        abort(403, description="Invalid token")
     
     base_url = request.host_url.rstrip('/')
     output = []
     
     with config_lock:
+        # 使用有序字典维护分组顺序
+        groups = {}
+        current_group = None
+        
         for channel in config_data['list']:
+            group_name = channel.get('group', '未分组')
+            
+            # 遇到新分组时添加分组标识
+            if group_name != current_group:
+                output.append(f"{group_name},#genre#")
+                current_group = group_name
+                groups.setdefault(group_name, [])
+            
+            # 生成频道条目
             stream_url = f"{base_url}/{channel['stream_id']}/index.m3u8?token={TOKEN}"
-            output.append(f"{channel['name']},{stream_url}")
+            groups[group_name].append(f"{channel['name']},{stream_url}")
+        
+        # 合并最终输出（保持分组出现顺序）
+        final_output = []
+        seen_groups = set()
+        for line in output:
+            if line.endswith(',#genre#'):
+                group = line.split(',#genre#')[0]
+                if group not in seen_groups:
+                    seen_groups.add(group)
+                    final_output.append(line)
+                    final_output.extend(groups[group])
+            else:
+                final_output.append(line)
     
+    return Response('\n'.join(final_output), mimetype='text/plain')
+
+@app.route('/m3u')
+def generate_m3u():
+    if request.args.get('token') != TOKEN:
+        abort(403, description="Invalid token")
+
+    base_url = request.host_url.rstrip('/')
+    output = ["#EXTM3U"]
+    
+    with config_lock:
+        for channel in config_data['list']:
+            # 处理特殊字符
+            safe_name = quote(channel['name'].strip().replace(' ','_'), safe='')
+            stream_url = f"{base_url}/{channel['stream_id']}/index.m3u8?token={TOKEN}"
+            
+            entry = (
+                f'#EXTINF:-1 tvg-name="{channel["name"]}" '
+                f'tvg-logo="https://logo.doube.eu.org/{safe_name}.png" '
+                f'group-title="{channel["group"]}",{channel["name"]}\n'
+                f"{stream_url}"
+            )
+            output.append(entry)
+    
+    #return Response('\n'.join(output), mimetype='application/vnd.apple.mpegurl')
     return Response('\n'.join(output), mimetype='text/plain')
+
+
+@app.route('/<file_prefix>', methods=['GET', 'POST'])
+def convert_txt_to_json(file_prefix):
+    # Token验证
+    if request.args.get('token') != TOKEN:
+        abort(403, description="Invalid token")
+
+    # 处理写入确认
+    if request.method == 'POST':
+        if not request.json.get('confirm'):
+            return '操作已取消', 200
+        
+        try:
+            # 重新读取数据确保一致性
+            converted_data = convert_file(file_prefix)
+            with config_lock:
+                with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+                    json.dump(converted_data, f, ensure_ascii=False, indent=2)
+                global last_modified
+                last_modified = os.path.getmtime(CONFIG_PATH)
+                load_config()
+            return jsonify({"status": "success", "message": "配置文件已更新"})
+        except Exception as e:
+            return jsonify({"status": "error", "message": str(e)}), 500
+
+    # GET请求处理
+    try:
+        converted_data = convert_file(file_prefix)
+        
+        # 生成预览页面
+        preview_html = f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>配置预览</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; }}
+                pre {{ background: #f5f5f5; padding: 15px; border-radius: 5px; }}
+                .buttons {{ margin-top: 20px; }}
+                button {{ padding: 10px 20px; margin-right: 10px; cursor: pointer; }}
+            </style>
+        </head>
+        <body>
+            <h2>转换预览</h2>
+            
+            <div class="buttons">
+                <button onclick="confirmWrite(true)">确认写入（会覆盖stream.json）</button>
+                <button onclick="confirmWrite(false)">取消</button>
+            </div>
+            <pre>{html.escape(json.dumps(converted_data, ensure_ascii=False, indent=2))}</pre>
+            <script>
+                function confirmWrite(confirm) {{
+                    fetch(window.location.href, {{
+                        method: 'POST',
+                        headers: {{ 'Content-Type': 'application/json' }},
+                        body: JSON.stringify({{ confirm: confirm }})
+                    }})
+                    .then(response => response.json())
+                    .then(data => {{
+                        alert(data.message);
+                        if(data.status === 'success') window.close();
+                    }});
+                }}
+            </script>
+        </body>
+        </html>
+        '''
+        return render_template_string(preview_html)
+
+    except FileNotFoundError:
+        abort(404, description=f"{file_prefix}.txt not found")
+    except Exception as e:
+        app.logger.error(f"转换失败: {str(e)}")
+        abort(500, description=f"转换错误: {str(e)}")
+
+def convert_file(file_prefix):
+    """通用转换函数"""
+    config_dir = os.path.dirname(CONFIG_PATH)
+    txt_path = os.path.join(config_dir, f"{file_prefix}.txt")
+    
+    channels = []
+    current_group = "默认分组"
+    channel_counter = 1
+    
+    with open(txt_path, 'r', encoding='utf-8') as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            
+            if '#genre#' in line:
+                current_group = line.split(',#genre#')[0].strip()
+                continue
+            
+            if ',' in line:
+                name, url = line.split(',', 1)
+                channels.append({
+                    "group": current_group,
+                    "name": name.strip(),
+                    "url": url.strip(),
+                    "stream_id": f"channel{channel_counter}"
+                })
+                channel_counter += 1
+
+    return {
+        "token": config_data.get('token', TOKEN),
+        "hls_time": config_data.get('hls_time', '3'),
+        "hls_list_size": config_data.get('hls_list_size', '12'),
+        "list": channels
+    }
+
+@app.route('/help')
+def show_help():
+    help_text = """by 公众号【医工学习日志】
+
+iptv-hls v1.0
+支持amd64 / ARM64 和 ARMv7
+
+================================
+
+拉取镜像，运行容器：
+docker run -d \\
+  --name iptv-hls \\
+  -p 50086:50086 \\
+  -v /etc/docker/iptv-hls/config:/app/config \\
+  -v /etc/docker/iptv-hls/hls:/hls \\
+  --restart always \\
+  cqshushu/iptv-hls:latest
+
+参数说明：
+--name   容器名称（可修改）
+-p       [主机端口]:50086（第一个端口可自定义）
+/etc/docker/iptv-hls 配置文件存放路径（可修改自己的路径）
+
+================================
+
+接口说明：
+1. TXT转JSON配置（需确认）：
+   http://[ip]:[port]/[txt文件名]?token=[token]
+   示例：http://192.168.1.100:50086/channels-to-json?token=my_token
+
+2. 频道列表(TXT格式)：
+   http://[ip]:[port]/txt?token=[token]
+
+3. 频道列表(M3U格式)：
+   http://[ip]:[port]/m3u?token=[token]
+
+4. 流媒体地址：
+   http://[ip]:[port]/[stream_id]/index.m3u8?token=[token]
+
+================================
+
+配置文件路径：
+├─ config/
+│  ├─ streams.json  # 推流配置
+│  └─ *.txt        # 频道源文件
+└─ hls/            # 实时生成的HLS分片"""
+    
+    return Response(help_text, mimetype='text/plain')
 
 if __name__ == '__main__':
     load_config()
