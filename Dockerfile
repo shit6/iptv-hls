@@ -1,34 +1,27 @@
-FROM --platform=$TARGETPLATFORM python:3.9-slim-bookworm
+# 使用官方 Python 镜像作为基础镜像
+FROM python:3.9-slim AS base
 
-# 设置时区
-ENV TZ=Asia/Shanghai
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
-
-# 配置APT源
-RUN { \
-    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm main contrib non-free"; \
-    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian/ bookworm-updates main contrib non-free"; \
-    echo "deb https://mirrors.tuna.tsinghua.edu.cn/debian-security/ bookworm-security main contrib non-free"; \
-} > /etc/apt/sources.list
-
-# 安装依赖
-RUN apt-get update -qq && \
-    apt-get install -y --no-install-recommends \
-        ffmpeg \
-        libatomic1 \
-    && rm -rf /var/lib/apt/lists/*
-
+# 设置工作目录
 WORKDIR /app
+
+# 复制 requirements.txt 并安装依赖
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+RUN pip install --no-cache-dir -r requirements.txt
 
+# 复制应用程序代码
 COPY app.py .
+COPY config/ ./config/
+COPY hls/ ./hls/
 
-RUN adduser --disabled-password --gecos "" appuser && \
-    mkdir -p /hls /app/config && \
-    chown appuser:appuser /hls /app/config
-
-USER appuser
-
+# 暴露 Flask 应用程序的端口
 EXPOSE 50086
-CMD ["python", "app.py"]
+
+# 设置环境变量
+ENV FLASK_APP=app.py
+
+# 启动 Flask 应用程序
+CMD ["flask", "run", "--host=0.0.0.0"]
+
+
+#EXPOSE 50086
+#CMD ["python", "app.py"]
