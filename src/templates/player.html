@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IPTV-HLS Player</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <style>
+        /* 基础样式 */
+        body { 
+            margin: 0; 
+            padding: 20px; 
+            background: #f0f2f5; 
+            height: 100vh;
+            box-sizing: border-box;
+        }
+        
+        .container { 
+            display: flex; 
+            gap: 20px; 
+            height: calc(100vh - 40px); /* 减去上下padding */
+            max-width: 1800px; 
+            margin: 0 auto; 
+        }
+        
+        .player-box { 
+            flex: 3; 
+            min-width: 0; /* 修复flex溢出问题 */
+            position: relative;
+            background: #000; 
+            border-radius: 8px; 
+            overflow: hidden; 
+            aspect-ratio: 16/9; /* 保持宽高比 */
+            max-height: 80vh;
+        }
+        
+        #video-player {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        
+        .channel-list { 
+            flex: 1; 
+            background: #fff; 
+            border-radius: 8px; 
+            padding: 15px; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            min-width: 300px;
+            overflow-y: auto;
+        }
+
+        /* 频道列表样式 */
+        .channel-group { margin-bottom: 20px; }
+        .group-title { 
+            font-size: 16px; 
+            color: #333; 
+            margin-bottom: 10px; 
+            padding-bottom: 5px; 
+            border-bottom: 2px solid #eee; 
+            position: sticky;
+            top: 0;
+            background: white;
+            z-index: 1;
+        }
+        
+        .channel-item { 
+            padding: 12px;
+            margin: 6px 0; 
+            cursor: pointer; 
+            border-radius: 6px; 
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+        
+        .channel-item:hover { background: #f5f5f5; }
+        .channel-item.active { 
+            background: #e6f7ff; 
+            color: #1890ff;
+            font-weight: 500;
+        }
+
+        /* 响应式布局 */
+        @media (max-width: 1024px) {
+            .container {
+                flex-direction: column;
+                height: auto;
+                min-height: 100vh;
+            }
+            
+            .player-box {
+                flex: none;
+                width: 100%;
+                max-height: 56.25vw; /* 保持16:9比例 */
+                aspect-ratio: unset;
+            }
+            
+            .channel-list {
+                flex: none;
+                max-height: 50vh;
+                min-width: auto;
+            }
+        }
+
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+            
+            .channel-item {
+                padding: 10px;
+                margin: 4px 0;
+                font-size: 13px;
+            }
+            
+            .group-title {
+                font-size: 15px;
+            }
+        }
+
+        /* 横屏优化 */
+        @media (orientation: landscape) and (max-height: 500px) {
+            .container {
+                flex-direction: row;
+            }
+            
+            .player-box {
+                max-height: 90vh;
+            }
+            
+            .channel-list {
+                max-height: 90vh;
+            }
+        }
+    </style>
+</head>
+<body>
+    <!-- 保持原有HTML结构不变 -->
+    <div class="container">
+        <div class="player-box">
+            <video id="video-player" controls></video>
+        </div>
+        <div class="channel-list">
+            {% for group in channels|groupby('group') %}
+            <div class="channel-group">
+                <div class="group-title">{{ group.grouper }}</div>
+                {% for channel in group.list %}
+                <div class="channel-item" 
+                     data-stream="{{ channel.stream_id }}"
+                     data-token="{{ channel.token }}"
+                     onclick="playStream(this)">
+                    {{ channel.name }}
+                </div>
+                {% endfor %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='hls.js') }}"></script>
+
+    <script>
+        let hls = null;
+        const video = document.getElementById('video-player');
+        
+        // 增强错误处理
+        function initHls() {
+            if (hls) {
+                hls.destroy();
+            }
+            hls = new Hls({
+                enableWorker: true,       // 启用Web Worker
+                lowLatencyMode: true,     // 低延迟模式
+                backBufferLength: 30     // 优化缓冲
+            });
+            
+            hls.on(Hls.Events.ERROR, function(event, data) {
+                console.error('HLS Error:', data);
+                if (data.fatal) {
+                    switch (data.type) {
+                        case Hls.ErrorTypes.NETWORK_ERROR:
+                            hls.startLoad();
+                            break;
+                        case Hls.ErrorTypes.MEDIA_ERROR:
+                            hls.recoverMediaError();
+                            break;
+                        default:
+                            hls.destroy();
+                            break;
+                    }
+                }
+            });
+        }
+
+
+
+        function playStream(element) {
+            // 初始化播放器
+            if (!Hls.isSupported() && !video.canPlayType('application/vnd.apple.mpegurl')) {
+                alert('当前浏览器不支持视频播放');
+                return;
+            }
+
+            // 更新激活状态
+            document.querySelectorAll('.channel-item').forEach(el => el.classList.remove('active'));
+            element.classList.add('active');
+
+            const streamId = element.dataset.stream;
+            const token = element.dataset.token;
+            //const url = `/${streamId}/index.m3u8?t=${token}`;
+            const url = `/tsfile/live/${streamId}.m3u8?key=${token}`;
+            
+
+            // 初始化HLS实例
+            initHls();
+
+            // 显示加载状态
+            video.poster = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+            video.controls = false;
+
+            // 在播放器错误处理部分添加：
+            video.addEventListener('error', function() {
+                if (hls) {
+                    hls.recoverMediaError();
+                } else {
+                    const currentSrc = video.currentSrc;
+                    video.load();
+                    video.play().catch(e => console.log('自动重试失败'));
+                }
+            });
+
+
+
+            if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = url;
+                video.addEventListener('loadeddata', () => {
+                    video.controls = true;
+                    video.play().catch(e => {
+                        console.error('自动播放失败:', e);
+                        video.controls = true;
+                    });
+                });
+            } else if (Hls.isSupported()) {
+                hls.loadSource(url);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.MANIFEST_PARSED, function() {
+                    video.play().catch(e => {
+                        console.error('自动播放失败:', e);
+                        video.controls = true;
+                    });
+                });
+            }
+        }
+    </script>
+
+
+</body>
+</html>
+
+
+
