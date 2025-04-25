@@ -1,38 +1,38 @@
-name: Build and Push Docker Image
+name: Multi-Arch Docker Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
 
 jobs:
-  build:
+  build-and-push:
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        architecture: [amd64, arm64, armv7]
-
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
-      - name: Set up QEMU for multi-architecture builds
-        uses: docker/setup-qemu-action@v2  # 更新到 v2
+      # 启用 QEMU 模拟多架构
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
 
+      # 初始化 Docker Buildx
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2  # 更新到 v2
+        uses: docker/setup-buildx-action@v2
 
+      # 登录 Docker Hub
       - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push multi-architecture Docker image
-        uses: docker/build-push-action@v3  # 更新到 v3
+      # 构建并推送多架构镜像
+      - name: Build and Push
+        uses: docker/build-push-action@v3
         with:
           context: .
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: your-dockerhub-username/iptv-hls:latest
-          platforms: linux/${{ matrix.architecture }}
+          tags: |
+            cqshushu/iptv-hls:4.0
+            cqshushu/iptv-hls:latest
