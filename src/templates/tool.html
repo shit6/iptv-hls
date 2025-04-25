@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>IPTV-HLS管理页面</title>
+    <!--link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.63.0/codemirror.min.css"-->
+    <link rel="stylesheet" href="{{ url_for('static', filename='codemirror.min.css') }}">
+    
+    <style>
+        /* 保持原有样式不变 */
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .buttons { margin: 20px 0; }
+        button { padding: 10px 20px; margin-right: 10px; cursor: pointer; }
+        .CodeMirror { 
+            border: 1px solid #eee;
+            border-radius: 5px;
+            height: auto;
+            margin: 20px 0;
+        }
+        .CodeMirror-scroll { min-height: 400px; }
+    </style>
+</head>
+<body>
+    <h2>IPTV-HLS管理页面</h2>
+
+    <div class="buttons">
+        <input type="file" id="fileInput" accept=".txt" style="display: none;" onchange="handleFileSelect(event)">
+        <button onclick="document.getElementById('fileInput').click()">读取TXT</button>
+        <button onclick="loadDefault()">载入配置</button>
+        <button onclick="refreshTokens()">更换TOKEN</button>
+        <button onclick="confirmWrite(true)">保存配置</button>
+        <button onclick="handlePassword('save')">更改密码</button>
+        <button onclick="openTxt()">TXT接口</button>
+        <button onclick="openM3u()">M3U接口</button>
+        <button onclick="play()">播放</button>
+        <button onclick="closeWindow()">关闭网页</button>
+    </div>
+
+    <div id="jsonEditor"></div>
+
+    <!--script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.63.0/codemirror.min.js"></script-->
+    <!--script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.63.0/mode/javascript/javascript.min.js"></script-->
+
+    <script src="{{ url_for('static', filename='codemirror.min.js') }}"></script>
+    <script src="{{ url_for('static', filename='javascript.min.js') }}"></script>
+
+    <script>
+        // 初始化代码编辑器
+        const editor = CodeMirror(document.getElementById('jsonEditor'), {
+            mode: 'application/json',
+            lineNumbers: true,
+            lineWrapping: true,
+            indentUnit: 4,
+            theme: 'default',
+            value: ''  // 初始为空
+        });
+
+        // 设置编辑器样式（保持原有）
+        editor.setOption('extraKeys', {
+            'Ctrl-Space': 'autocomplete'
+        });
+
+        // 获取URL中的token
+        function getToken() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('token');
+        }
+
+
+        function getPassword() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('password');
+        }
+
+
+        // 修改handleFileSelect函数
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                fetch('/convert?password=' + encodeURIComponent(getPassword()), {
+                    method: 'POST',
+                    body: e.target.result
+                })
+                .then(response => response.text())  // 改为获取原始文本
+                .then(text => {
+                    try {
+                        // 直接使用服务器返回的原始JSON字符串
+                        editor.setValue(text);
+                    } catch (e) {
+                        alert('解析失败: ' + e.message);
+                    }
+                });
+            };
+            reader.readAsText(file);
+        }
+
+        // 确认写入函数（修改请求地址）
+        function confirmWrite(confirm) {
+            const payload = {
+                confirm: confirm,
+                content: confirm ? JSON.parse(editor.getValue()) : null
+            };
+
+            fetch('/write_config?password=' + encodeURIComponent(getPassword()), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    alert('配置已更新');
+                    //window.close();
+                } else {
+                    alert('错误: ' + data.message);
+                }
+            });
+        }
+
+        // 新增载入配置函数
+        function loadDefault() {
+            fetch('/load_default?password=' + encodeURIComponent(getPassword()))
+                .then(response => {
+                    if (!response.ok) throw new Error('配置加载失败');
+                    return response.text();
+                })
+                .then(text => {
+                    editor.setValue(text);
+                    editor.refresh(); // 刷新编辑器显示
+                })
+                .catch(error => {
+                    alert(error.message);
+                });
+        }
+
+        function openTxt() {
+            // 获取当前密码
+            const currentPassword = getPassword();
+            
+            // 获取配置文件中的token
+            fetch(`/get_config_token?password=${encodeURIComponent(currentPassword)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        const configToken = data.token;
+                        const url = `/txt?token=${encodeURIComponent(configToken)}`;
+                        window.open(url, '_blank');
+                    } else {
+                        alert('获取配置token失败: ' + (data.message || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    alert('请求失败: ' + error.message);
+                });
+        }
+
+
+        function openM3u() {
+            // 获取当前密码
+            const currentPassword = getPassword();
+            
+            // 获取配置文件中的token
+            fetch(`/get_config_token?password=${encodeURIComponent(currentPassword)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        const configToken = data.token;
+                        const url = `/m3u?token=${encodeURIComponent(configToken)}`;
+                        window.open(url, '_blank');
+                    } else {
+                        alert('获取配置token失败: ' + (data.message || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    alert('请求失败: ' + error.message);
+                });
+        }
+
+        function play() {
+            // 获取当前密码
+            const currentPassword = getPassword();
+            
+            // 获取配置文件中的token
+            fetch(`/get_config_token?password=${encodeURIComponent(currentPassword)}`)
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        const configToken = data.token;
+                        const url = `/player?token=${encodeURIComponent(configToken)}`;
+                        window.open(url, '_blank');
+                    } else {
+                        alert('获取配置token失败: ' + (data.message || '未知错误'));
+                    }
+                })
+                .catch(error => {
+                    alert('请求失败: ' + error.message);
+                });
+        }
+
+        function closeWindow() {
+            window.close(); // 关闭当前窗口
+        }
+
+
+        // 生成随机字符串（与Python实现一致）
+        function generateRandomString(length = 8) {
+            const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+            return Array.from({length}, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        }
+
+        // 刷新所有token
+        function refreshTokens() {
+            try {
+                const currentValue = editor.getValue();
+                const config = JSON.parse(currentValue);
+
+                // 1. 刷新顶层token字段
+                if (config.token) {
+                    config.token = generateRandomString(); // 生成新的随机token
+                }
+
+                if (config?.list && Array.isArray(config.list)) {
+                    config.list.forEach(channel => {
+                        if (channel.t && Array.isArray(channel.t)) {
+                            // 为每个 t 数组生成全新随机字符串
+                            channel.t = channel.t.map(() => generateRandomString());
+                        }
+                    });
+                    
+                    editor.setValue(JSON.stringify(config, null, 2));
+                    editor.refresh();
+                } else {
+                    alert('当前配置格式无效，请先加载有效配置');
+                }
+            } catch (e) {
+                alert('刷新Token失败: ' + e.message);
+            }
+        }
+
+        //保存密码函数
+        function handlePassword(action) {
+            if(action === 'save') {
+                // 弹出简单的密码输入框
+                const newPassword = prompt('请输入新密码:');
+                if (!newPassword) return;
+
+                // 直接发送请求
+                fetch(`/save_password?password=${encodeURIComponent(getPassword())}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: newPassword })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        window.location.href = `/tool?password=${encodeURIComponent(newPassword)}`;
+                    } else {
+                        alert('保存失败: ' + (data.message || '未知错误'));
+                    }
+                });
+            }
+        }
+
+
+
+    </script>
+</body>
+</html>
