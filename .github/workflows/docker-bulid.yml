@@ -34,5 +34,5 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            cqshushu/iptv-hls:4.0
-            cqshushu/iptv-hls:latest
+            shit6/iptv-hls:4.0
+            shit6/iptv-hls:latest
